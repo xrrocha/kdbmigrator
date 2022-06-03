@@ -2,6 +2,7 @@ package kdbmigrator
 
 import org.junit.jupiter.api.Test
 import java.time.LocalDate
+import kotlin.test.assertEquals
 import kotlin.test.fail
 
 class MigrationIT {
@@ -71,13 +72,33 @@ class MigrationIT {
                 )
             )
             .tap { results ->
-                println("Results:")
-                results.forEach(::println)
+                assertEquals(
+                    setOf(
+                        StepResult("Load departments", 4),
+                        StepResult("Load employees", 14)
+
+                    ),
+                    results.toSet()
+                )
             }
             .tapLeft { errors ->
                 println("Errors:")
                 errors.forEach(::println)
                 fail()
             }
+        val empNames =
+            connect("destination")
+                .prepareStatement("SELECT * FROM emp")
+                .executeQuery()
+                .readAll()
+                .map { it["ENAME"]!! }
+                .toSet()
+        assertEquals(
+            setOf(
+                "ADAMS", "ALLEN", "BLAKE", "CLARK", "FORD", "JAMES", "JONES",
+                "KING", "MARTIN", "MILLER", "SCOTT", "SMITH", "TURNER", "WARD"
+            ),
+            empNames
+        )
     }
 }
