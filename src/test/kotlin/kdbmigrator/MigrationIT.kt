@@ -74,8 +74,8 @@ class MigrationIT {
             .tap { results ->
                 assertEquals(
                     setOf(
-                        StepResult("Load departments", 4),
-                        StepResult("Load employees", 14)
+                        StepResult("Load employees", 14),
+                        StepResult("Load departments", 4)
 
                     ),
                     results.toSet()
