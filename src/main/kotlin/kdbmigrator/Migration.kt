@@ -67,25 +67,25 @@ class MigrationPlan(private val commitAtEnd: Boolean, private val autoClose: Boo
         val batchSize: Int
     )
 
-    interface ActionPreparer<R> {
-        fun prepareAction(runtime: Runtime): Either<List<Failure>, () -> Either<Failure, R>>
+    interface ActionCompiler<R> {
+        fun compile(runtime: Runtime): Either<List<Failure>, () -> Either<Failure, R>>
     }
 
-    private val actionPreparers = mutableListOf<ActionPreparer<*>>()
+    private val actionCompilers = mutableListOf<ActionCompiler<*>>()
 
     fun validate() {
-        if (actionPreparers.filterIsInstance<StepPreparer>().isEmpty()) {
+        if (actionCompilers.filterIsInstance<StepCompiler>().isEmpty()) {
             throw IllegalStateException("No migration steps specified")
         }
     }
 
-    class StatementPreparer(
+    class StatementCompiler(
         val timing: Timing,
         private val target: Target,
         private val parameterizedSql: ParameterizedSql
-    ) : ActionPreparer<Unit> {
+    ) : ActionCompiler<Unit> {
 
-        override fun prepareAction(runtime: Runtime): Either<List<Failure>, () -> Either<Failure, Unit>> =
+        override fun compile(runtime: Runtime): Either<List<Failure>, () -> Either<Failure, Unit>> =
             Either.catch {
                 parameterizedSql.prepare(connection(runtime), runtime.parameters)
             }
@@ -110,9 +110,9 @@ class MigrationPlan(private val commitAtEnd: Boolean, private val autoClose: Boo
             else runtime.destinationConnection
     }
 
-    class StepPreparer(private val step: Step) : ActionPreparer<StepResult> {
+    class StepCompiler(private val step: Step) : ActionCompiler<StepResult> {
 
-        override fun prepareAction(runtime: Runtime): Either<List<Failure>, () -> Either<Failure, StepResult>> {
+        override fun compile(runtime: Runtime): Either<List<Failure>, () -> Either<Failure, StepResult>> {
 
             val selectResult = Either.catch {
                 step.select.prepare(runtime.originConnection, runtime.parameters)
@@ -165,13 +165,13 @@ class MigrationPlan(private val commitAtEnd: Boolean, private val autoClose: Boo
 
     internal fun addAction(timing: Timing, target: Target, sql: String) {
         // TODO Parse SQL quoted strings
-        actionPreparers +=
+        actionCompilers +=
             sql
                 .split(";")
                 .map(String::trim)
                 .filterNot { it.isEmpty() || it == ";" }
                 .map(::ParameterizedSql)
-                .map { StatementPreparer(timing, target, it) }
+                .map { StatementCompiler(timing, target, it) }
 
     }
 
@@ -183,7 +183,7 @@ class MigrationPlan(private val commitAtEnd: Boolean, private val autoClose: Boo
 
     // TODO Validate w/Either
     infix fun String.runs(action: Step.() -> Unit) {
-        actionPreparers += StepPreparer(
+        actionCompilers += StepCompiler(
             Step(this)
                 .apply(action)
                 .apply { validate() })
@@ -239,15 +239,15 @@ class MigrationPlan(private val commitAtEnd: Boolean, private val autoClose: Boo
 
     private fun runWith(runtime: Runtime): Either<List<Failure>, List<StepResult>> {
 
-        val (stepPartition, statementPartition) = actionPreparers.partition { it is StepPreparer }
+        val (stepPartition, statementPartition) = actionCompilers.partition { it is StepCompiler }
 
         val (stepFailures, stepActions) =
-            stepPartition.traverseAndPartition { (it as StepPreparer).prepareAction(runtime) }
+            stepPartition.traverseAndPartition { (it as StepCompiler).compile(runtime) }
 
-        val statementPreparers = statementPartition.map { it as StatementPreparer }
+        val statementPreparers = statementPartition.map { it as StatementCompiler }
         val (beforePreparers, afterPreparers) = statementPreparers.partition { it.timing == BEFORE }
-        val (beforeFailures, beforeActions) = beforePreparers.traverseAndPartition { it.prepareAction(runtime) }
-        val (afterFailures, afterActions) = afterPreparers.traverseAndPartition { it.prepareAction(runtime) }
+        val (beforeFailures, beforeActions) = beforePreparers.traverseAndPartition { it.compile(runtime) }
+        val (afterFailures, afterActions) = afterPreparers.traverseAndPartition { it.compile(runtime) }
 
         val failures =
             listOf(stepFailures, beforeFailures, afterFailures).map { it.flatten() }.flatten()
