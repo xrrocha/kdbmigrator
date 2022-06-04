@@ -32,10 +32,10 @@ fun <L, R, T> Iterable<T>.partitionBy(action: (T) -> Either<L, R>): Pair<List<L>
     return Pair(left.map { (it as Left<L>).value }, right.map { (it as Right<R>).value })
 }
 
-fun <T> List<T>.close() = filterIsInstance<AutoCloseable>().map { ignoreFailure { it.close() } }
+fun <T> Iterable<T>.close() = filterIsInstance<AutoCloseable>().map { ignoreFailure { it.close() } }
 
-fun <T> List<T>.close(extractor: (T) -> AutoCloseable) = map { ignoreFailure { extractor(it).close() } }
-fun <T, R> List<T>.closeBy(extractor: (T) -> R) =
+fun <T> Iterable<T>.close(extractor: (T) -> AutoCloseable) = map { ignoreFailure { extractor(it).close() } }
+fun <T, R> Iterable<T>.closeBy(extractor: (T) -> R) =
     map(extractor).filterIsInstance<AutoCloseable>().map { ignoreFailure { it.close() } }
 
 fun ignoreFailure(action: () -> Unit) =
