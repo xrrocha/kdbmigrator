@@ -13,6 +13,8 @@ repositories {
 
 dependencies {
     implementation("io.arrow-kt:arrow-core:1.1.2")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.6.2")
+
     implementation("com.oracle.database.jdbc:ojdbc11:21.5.0.0")
     implementation("org.postgresql:postgresql:42.3.6")
 

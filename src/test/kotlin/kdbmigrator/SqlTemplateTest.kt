@@ -3,7 +3,7 @@ package kdbmigrator
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
-class ParameterizedSqlTest {
+class SqlTemplateTest {
     @Test
     fun `Matches proper parameter names`() {
         listOf(
@@ -11,7 +11,7 @@ class ParameterizedSqlTest {
             ":_param2", ":_param_34", ":param_5_",
             ":param_6_a", ":param_7_a_", ":param_8_z_0"
         )
-            .all(ParameterizedSql.ParameterReference::matches)
+            .all(SqlTemplate.ParameterReference::matches)
     }
 
     @Test
@@ -19,25 +19,25 @@ class ParameterizedSqlTest {
         listOf(
             "", ":", "param", ":1param", ""
         )
-            .none(ParameterizedSql.ParameterReference::matches)
+            .none(SqlTemplate.ParameterReference::matches)
     }
 
     @Test
     fun `Parses non-parameterized sql properly`() {
-        val parameterizedSql = ParameterizedSql("""
+        val sqlTemplate = SqlTemplate("""
             SELECT  empno, ename, sal
             FROM    emp
         """)
         assertEquals("""
             SELECT  empno, ename, sal
             FROM    emp
-        """, parameterizedSql.parameterizedSql)
-        assertEquals(emptyList(), parameterizedSql.parameterNames)
+        """, sqlTemplate.parameterizedSql)
+        assertEquals(emptyList(), sqlTemplate.parameterNames)
     }
 
     @Test
     fun `Parses parameterized sql properly`() {
-        val parameterizedSql = ParameterizedSql("""
+        val sqlTemplate = SqlTemplate("""
             SELECT  empno, ename, sal
             FROM    emp
             WHERE   deptno = :deptno
@@ -48,7 +48,7 @@ class ParameterizedSqlTest {
             FROM    emp
             WHERE   deptno = ?
                OR   (sal >= ? AND deptno <> ?)
-        """, parameterizedSql.parameterizedSql)
-        assertEquals(listOf("deptno", "min_sal", "deptno"), parameterizedSql.parameterNames)
+        """, sqlTemplate.parameterizedSql)
+        assertEquals(listOf("deptno", "min_sal", "deptno"), sqlTemplate.parameterNames)
     }
 }

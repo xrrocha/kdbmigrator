@@ -6,13 +6,13 @@ import java.sql.Types
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
-class ParameterizedSqlIT {
+class SqlTemplateIT {
 
     companion object : DBSupport()
 
     @Test
     fun `Prepares SELECT statement correctly`() {
-        val parameterizedSql = ParameterizedSql(
+        val sqlTemplate = SqlTemplate(
             """
            SELECT ename
            FROM   emp
@@ -21,7 +21,7 @@ class ParameterizedSqlIT {
         )
         createSchema("test")
         loadData("test")
-        val results = parameterizedSql
+        val results = sqlTemplate
             .prepare(connect("test"), mapOf("deptno" to 10))
             .executeQuery()
             .readAll()
@@ -32,7 +32,7 @@ class ParameterizedSqlIT {
 
     @Test
     fun `Fails on missing parameter`() {
-        val parameterizedSql = ParameterizedSql(
+        val sqlTemplate = SqlTemplate(
             """
            SELECT ename
            FROM   emp
@@ -42,14 +42,14 @@ class ParameterizedSqlIT {
         createSchema("test")
         loadData("test")
         assertThrows<IllegalArgumentException> {
-            parameterizedSql.prepare(connect("test"), emptyMap())
+            sqlTemplate.prepare(connect("test"), emptyMap())
         }
     }
 
     @Test
     @Disabled
     fun `Fails on parameter count mismatch`() {
-        val parameterizedSql = ParameterizedSql(
+        val sqlTemplate = SqlTemplate(
             """
            SELECT ':name' AS name
            FROM   emp
@@ -59,7 +59,7 @@ class ParameterizedSqlIT {
         createSchema("test")
         loadData("test")
         assertThrows<IllegalStateException> {
-            parameterizedSql.prepare(connect("test"), mapOf("deptno" to 10))
+            sqlTemplate.prepare(connect("test"), mapOf("deptno" to 10))
         }
     }
 
@@ -85,7 +85,7 @@ class ParameterizedSqlIT {
 
     @Test
     fun `Determines parameter types`() {
-        val parameterizedSql = ParameterizedSql(
+        val sqlTemplate = SqlTemplate(
             """
            SELECT empno, ename, sal
            FROM   emp
@@ -95,7 +95,7 @@ class ParameterizedSqlIT {
         )
         createSchema("test")
         loadData("test")
-        parameterizedSql.prepare(
+        sqlTemplate.prepare(
             connect("test"),
             mapOf(
                 "deptno" to 10,
@@ -104,7 +104,7 @@ class ParameterizedSqlIT {
         )
         assertEquals(
             listOf(Types.INTEGER, Types.NUMERIC),
-            parameterizedSql.parameterTypes
+            sqlTemplate.parameterTypes
         )
     }
 }

@@ -33,11 +33,6 @@ fun migration(commitAtEnd: Boolean = true, autoClose: Boolean = true, action: Mi
         .apply(action)
         .apply { validate() }
 
-data class Failure(val cause: Throwable? = null, val context: () -> String) {
-    override fun toString() =
-        "Error ${context()}${if (cause == null) "" else " (${cause.message ?: cause})"}"
-}
-
 fun <T, L, R> Iterable<T>.traverseAndPartition(action: (T) -> Either<L, R>): Pair<List<L>, List<R>> {
     val (lefts, rights) = map(action).partition { result -> result.isLeft() }
     return Pair(
@@ -82,12 +77,12 @@ class MigrationPlan(private val commitAtEnd: Boolean, private val autoClose: Boo
     class StatementCompiler(
         val timing: Timing,
         private val target: Target,
-        private val parameterizedSql: ParameterizedSql
+        private val sqlTemplate: SqlTemplate
     ) : ActionCompiler<Unit> {
 
         override fun compile(runtime: Runtime): Either<List<Failure>, () -> Either<Failure, Unit>> =
             Either.catch {
-                parameterizedSql.prepare(connection(runtime), runtime.parameters)
+                sqlTemplate.prepare(connection(runtime), runtime.parameters)
             }
                 .map { statement ->
                     {
@@ -99,11 +94,11 @@ class MigrationPlan(private val commitAtEnd: Boolean, private val autoClose: Boo
                                 }
                             }
                                 // TODO Normalize parameterizedSql.sql
-                                .mapLeft { Failure(it) { "executing '$timing' on $target (${parameterizedSql.sql})" } }
+                                .mapLeft { Failure(it) { "executing '$timing' on $target (${sqlTemplate.sql})" } }
                         }
                     }
                 }
-                .mapLeft { listOf(Failure(it) { "preparing '$timing' statement on $target (${parameterizedSql.sql})" }) }
+                .mapLeft { listOf(Failure(it) { "preparing '$timing' statement on $target (${sqlTemplate.sql})" }) }
 
         private fun connection(runtime: Runtime) =
             if (target == ORIGIN) runtime.originConnection
@@ -170,7 +165,7 @@ class MigrationPlan(private val commitAtEnd: Boolean, private val autoClose: Boo
                 .split(";")
                 .map(String::trim)
                 .filterNot { it.isEmpty() || it == ";" }
-                .map(::ParameterizedSql)
+                .map(::SqlTemplate)
                 .map { StatementCompiler(timing, target, it) }
 
     }
@@ -268,8 +263,8 @@ class MigrationPlan(private val commitAtEnd: Boolean, private val autoClose: Boo
 // TODO Add before/after to migration step
 class Step(val name: String) {
 
-    lateinit var select: ParameterizedSql
-    lateinit var insert: ParameterizedSql
+    lateinit var select: SqlTemplate
+    lateinit var insert: SqlTemplate
 
     // TODO Hide batchSize get/set
     var batchSize: Int? = null
@@ -296,12 +291,12 @@ class Step(val name: String) {
 
     val read = object : Using {
         override fun using(sql: String) {
-            select = ParameterizedSql(sql)
+            select = SqlTemplate(sql)
         }
     }
     val write = object : Using {
         override fun using(sql: String) {
-            insert = ParameterizedSql(sql)
+            insert = SqlTemplate(sql)
         }
     }
 

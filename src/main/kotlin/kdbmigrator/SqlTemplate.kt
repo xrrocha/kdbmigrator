@@ -1,10 +1,25 @@
 package kdbmigrator
 
+import arrow.core.Either
+import arrow.core.continuations.either
+import arrow.core.traverse
+import kotlinx.coroutines.runBlocking
 import java.sql.Connection
 import java.sql.PreparedStatement
 import java.sql.ResultSet
 
-class ParameterizedSql(val sql: String) {
+class SqlTemplate(val sql: String) {
+
+    companion object {
+        internal val ParameterReference = """:[_\p{IsLatin}][_\p{IsLatin}\d]+""".toRegex()
+        fun parse(sqlBlock: String): List<SqlTemplate> =
+            sqlBlock
+                .split(";")
+                .map(String::trim)
+                .filterNot { it.isEmpty() || it == ";" }
+                .map(::SqlTemplate)
+
+    }
 
     internal val parameterizedSql: String =
         ParameterReference.replace(sql, "?")
@@ -15,9 +30,41 @@ class ParameterizedSql(val sql: String) {
             .toList()
 
     internal lateinit var parameterTypes: List<Int>
+    fun doPrepare(connection: Connection, parameters: Map<String, Any?> = emptyMap()):
+            Either<Failure, PreparedStatement> = runBlocking {
+        either {
 
-    companion object {
-        internal val ParameterReference = """:[_\p{IsLatin}][_\p{IsLatin}\d]+""".toRegex()
+            val preparedStatement = connection.prepareStatement(parameterizedSql)
+
+            expect(preparedStatement.parameterMetaData.parameterCount == parameterNames.size) {
+                "Statement parameter count mismatch, " +
+                        "expected: ${preparedStatement.parameterMetaData.parameterCount}, " +
+                        "got: ${parameterNames.size}"
+            }
+                .bind()
+
+            expect(preparedStatement.metaData == null || parameterNames.all(parameters::containsKey)) {
+                "Statement parameter count mismatch, " +
+                        "expected: ${preparedStatement.parameterMetaData.parameterCount}, " +
+                        "got: ${parameterNames.size}"
+            }
+                .bind()
+
+            parameterTypes =
+                (1..preparedStatement.parameterMetaData.parameterCount)
+                    .traverse {
+                        attempt({ "getting parameter type #$it" }) {
+                            preparedStatement.parameterMetaData.getParameterType(
+                                it
+                            )
+                        }
+                    }
+                    .bind()
+
+            setParameters(preparedStatement, parameters)
+
+            preparedStatement
+        }
     }
 
     fun prepare(connection: Connection, parameters: Map<String, Any?> = emptyMap()): PreparedStatement {
