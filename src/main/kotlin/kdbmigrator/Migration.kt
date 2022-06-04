@@ -33,14 +33,6 @@ fun migration(commitAtEnd: Boolean = true, autoClose: Boolean = true, action: Mi
         .apply(action)
         .apply { validate() }
 
-fun <T, L, R> Iterable<T>.traverseAndPartition(action: (T) -> Either<L, R>): Pair<List<L>, List<R>> {
-    val (lefts, rights) = map(action).partition { result -> result.isLeft() }
-    return Pair(
-        lefts.map { (it as Left<L>).value },
-        rights.map { (it as Right<R>).value },
-    )
-}
-
 enum class Timing {
     BEFORE, AFTER;
 
@@ -207,7 +199,7 @@ class MigrationPlan(private val commitAtEnd: Boolean, private val autoClose: Boo
                                 "origin" to { originConnection.commit() },
                                 "destination" to { destinationConnection.commit() }
                             )
-                                .traverseAndPartition { (context, action) ->
+                                .partitionBy { (context, action) ->
                                     Either.catch { action() }
                                         .mapLeft { Failure(it) { "committing on $context database" } }
                                 }
@@ -237,12 +229,12 @@ class MigrationPlan(private val commitAtEnd: Boolean, private val autoClose: Boo
         val (stepPartition, statementPartition) = actionCompilers.partition { it is StepCompiler }
 
         val (stepFailures, stepActions) =
-            stepPartition.traverseAndPartition { (it as StepCompiler).compile(runtime) }
+            stepPartition.partitionBy { (it as StepCompiler).compile(runtime) }
 
         val statementPreparers = statementPartition.map { it as StatementCompiler }
         val (beforePreparers, afterPreparers) = statementPreparers.partition { it.timing == BEFORE }
-        val (beforeFailures, beforeActions) = beforePreparers.traverseAndPartition { it.compile(runtime) }
-        val (afterFailures, afterActions) = afterPreparers.traverseAndPartition { it.compile(runtime) }
+        val (beforeFailures, beforeActions) = beforePreparers.partitionBy { it.compile(runtime) }
+        val (afterFailures, afterActions) = afterPreparers.partitionBy { it.compile(runtime) }
 
         val failures =
             listOf(stepFailures, beforeFailures, afterFailures).map { it.flatten() }.flatten()
