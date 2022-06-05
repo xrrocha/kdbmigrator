@@ -2,13 +2,14 @@ package kdbmigrator
 
 import arrow.core.Either
 import arrow.core.continuations.either
-import arrow.core.traverse
 import kotlinx.coroutines.runBlocking
 import java.sql.Connection
 import java.sql.PreparedStatement
 import java.sql.ResultSet
 
-class SqlTemplate(val sql: String) {
+class SqlTemplate(sql: String) {
+
+    val sql = sql.trimIndent()
 
     companion object {
         internal val ParameterReference = """:[_\p{IsLatin}][_\p{IsLatin}\d]+""".toRegex()
@@ -30,62 +31,43 @@ class SqlTemplate(val sql: String) {
             .toList()
 
     internal lateinit var parameterTypes: List<Int>
-    fun doPrepare(connection: Connection, parameters: Map<String, Any?> = emptyMap()):
-            Either<Failure, PreparedStatement> = runBlocking {
+
+    fun prepare(connection: Connection, parameters: Map<String, Any?>)
+            : Either<Failure, PreparedStatement> = runBlocking {
         either {
 
-            val preparedStatement = connection.prepareStatement(parameterizedSql)
-
-            expect(preparedStatement.parameterMetaData.parameterCount == parameterNames.size) {
-                "Statement parameter count mismatch, " +
-                        "expected: ${preparedStatement.parameterMetaData.parameterCount}, " +
-                        "got: ${parameterNames.size}"
-            }
-                .bind()
-
-            expect(preparedStatement.metaData == null || parameterNames.all(parameters::containsKey)) {
-                "Statement parameter count mismatch, " +
-                        "expected: ${preparedStatement.parameterMetaData.parameterCount}, " +
-                        "got: ${parameterNames.size}"
-            }
-                .bind()
-
-            parameterTypes =
-                (1..preparedStatement.parameterMetaData.parameterCount)
-                    .traverse {
-                        attempt({ "getting parameter type #$it" }) {
-                            preparedStatement.parameterMetaData.getParameterType(
-                                it
-                            )
-                        }
+            val preparedStatement =
+                attempt({ "preparing SQL statement:\n$sql\n" }) {
+                    connection.prepareStatement(parameterizedSql)
+                }
+                    .verify({ it.parameterMetaData.parameterCount == parameterNames.size }) {
+                        "Statement parameter count mismatch, " +
+                                "expected: ${it.parameterMetaData.parameterCount}, " +
+                                "got: ${parameterNames.size}"
+                    }
+                    .verify({ it.metaData == null || parameterNames.all(parameters::containsKey) }) {
+                        "Missing statement parameters: ${parameterNames.minus(parameters.keys)}"
                     }
                     .bind()
 
-            setParameters(preparedStatement, parameters)
+            parameterTypes =
+                attempt({ "getting parameter types" }) {
+                    with(preparedStatement.parameterMetaData) {
+                        (1..parameterCount).map(::getParameterType)
+                    }
+                }
+                    .bind()
+
+            attempt({ "setting ${parameters.size} parameters" }) {
+                setParameters(preparedStatement, parameters)
+            }
+                .bind()
 
             preparedStatement
         }
     }
 
-    fun prepare(connection: Connection, parameters: Map<String, Any?> = emptyMap()): PreparedStatement {
-        return connection.prepareStatement(parameterizedSql).apply {
-            if (parameterMetaData.parameterCount != parameterNames.size) {
-                throw IllegalStateException(
-                    "Statement parameter count mismatch, " +
-                            "expected: ${parameterMetaData.parameterCount}, got: ${parameterNames.size}"
-                )
-            }
-            if (metaData != null && !parameterNames.all(parameters::containsKey)) { // SELECT
-                throw IllegalArgumentException("Missing statement parameters: ${parameterNames.minus(parameters.keys)}")
-            }
-            parameterTypes = (1..parameterMetaData.parameterCount)
-                .map(parameterMetaData::getParameterType)
-                .toList()
-            setParameters(this, parameters)
-        }
-    }
-
-    internal fun setParameters(statement: PreparedStatement, parameters: Map<String, Any?>) {
+    private fun setParameters(statement: PreparedStatement, parameters: Map<String, Any?>) {
         statement.clearParameters()
         (1..parameterNames.size).forEach { i ->
             val parameterName = parameterNames[i - 1]
@@ -98,15 +80,17 @@ class SqlTemplate(val sql: String) {
         }
     }
 
-    fun prepare(connection: Connection, batchSize: Int): Insert =
-        Insert(connection, batchSize)
+    fun prepare(connection: Connection, batchSize: Int): Either<Failure, Insert> =
+        prepare(connection, emptyMap()).map { Insert(it, batchSize) }
 
-    inner class Insert(connection: Connection, private val batchSize: Int) : AutoCloseable {
+    inner class Insert(private val statement: PreparedStatement, private val batchSize: Int) : AutoCloseable {
 
         private var count = 0
-        private val statement = prepare(connection)
 
-        fun populateFrom(resultSet: ResultSet, parameters: Map<String, Any?>): Int {
+        fun populateFrom(resultSet: ResultSet, parameters: Map<String, Any?>): Either<Failure, Int> =
+            attempt("populating insert from result set:\n$sql\n") { doPopulateFrom(resultSet, parameters) }
+
+        private fun doPopulateFrom(resultSet: ResultSet, parameters: Map<String, Any?>): Int {
             use {
                 resultSet.use { resultSet ->
                     while (resultSet.next()) {
@@ -124,7 +108,7 @@ class SqlTemplate(val sql: String) {
             return count
         }
 
-        fun add(parameters: Map<String, Any?>) {
+        private fun add(parameters: Map<String, Any?>) {
             setParameters(statement, parameters)
             statement.addBatch()
 

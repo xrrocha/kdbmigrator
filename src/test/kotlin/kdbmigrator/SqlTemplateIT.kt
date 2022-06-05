@@ -5,6 +5,7 @@ import org.junit.jupiter.api.assertThrows
 import java.sql.Types
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class SqlTemplateIT {
 
@@ -21,13 +22,15 @@ class SqlTemplateIT {
         )
         createSchema("test")
         loadData("test")
-        val results = sqlTemplate
+        sqlTemplate
             .prepare(connect("test"), mapOf("deptno" to 10))
-            .executeQuery()
-            .readAll()
-            .map { it["ENAME"] as String }
-            .toSet()
-        assertEquals(setOf("KING", "CLARK", "MILLER"), results)
+            .map {
+                val results = it.executeQuery()
+                    .readAll()
+                    .map { it["ENAME"] as String }
+                    .toSet()
+                assertEquals(setOf("KING", "CLARK", "MILLER"), results)
+            }
     }
 
     @Test
@@ -41,9 +44,7 @@ class SqlTemplateIT {
         )
         createSchema("test")
         loadData("test")
-        assertThrows<IllegalArgumentException> {
-            sqlTemplate.prepare(connect("test"), emptyMap())
-        }
+        assertTrue(sqlTemplate.prepare(connect("test"), emptyMap()).isLeft())
     }
 
     @Test

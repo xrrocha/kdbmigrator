@@ -73,9 +73,7 @@ class MigrationPlan(private val commitAtEnd: Boolean, private val autoClose: Boo
     ) : ActionCompiler<Unit> {
 
         override fun compile(runtime: Runtime): Either<List<Failure>, () -> Either<Failure, Unit>> =
-            Either.catch {
-                sqlTemplate.prepare(connection(runtime), runtime.parameters)
-            }
+            sqlTemplate.prepare(connection(runtime), runtime.parameters)
                 .map { statement ->
                     {
                         statement.use {
@@ -90,7 +88,7 @@ class MigrationPlan(private val commitAtEnd: Boolean, private val autoClose: Boo
                         }
                     }
                 }
-                .mapLeft { listOf(Failure(it) { "preparing '$timing' statement on $target (${sqlTemplate.sql})" }) }
+                .mapLeft { listOf(it) }
 
         private fun connection(runtime: Runtime) =
             if (target == ORIGIN) runtime.originConnection
@@ -101,18 +99,12 @@ class MigrationPlan(private val commitAtEnd: Boolean, private val autoClose: Boo
 
         override fun compile(runtime: Runtime): Either<List<Failure>, () -> Either<Failure, StepResult>> {
 
-            val selectResult = Either.catch {
-                step.select.prepare(runtime.originConnection, runtime.parameters)
-            }
-                .mapLeft { Failure(it) { "preparing select statement for '${step.name}'" } }
+            val selectResult = step.select.prepare(runtime.originConnection, runtime.parameters)
 
-            val insertResult = Either.catch {
-                step.insert.prepare(
-                    runtime.destinationConnection,
-                    step.batchSize ?: runtime.batchSize
-                )
-            }
-                .mapLeft { Failure(it) { "preparing insert statement for '${step.name}'" } }
+            val insertResult = step.insert.prepare(
+                runtime.destinationConnection,
+                step.batchSize ?: runtime.batchSize
+            )
 
             val failures = listOf(selectResult, insertResult).filterIsInstance<Left<Failure>>().map { it.value }
             if (failures.isNotEmpty()) {
@@ -123,9 +115,9 @@ class MigrationPlan(private val commitAtEnd: Boolean, private val autoClose: Boo
             val insert = insertResult.orNull()!!
 
             return Right {
-                Either.catch { insert.populateFrom(selectStatement.executeQuery(), runtime.parameters) }
+                // TODO selectStatement.executeQuery() can fail
+                insert.populateFrom(selectStatement.executeQuery(), runtime.parameters)
                     .map { StepResult(step.name, it) }
-                    .mapLeft { Failure(it) { "executing migration step '${step.name}'" } }
             }
         }
     }
